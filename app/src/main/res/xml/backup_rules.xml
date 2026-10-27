@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <include domain="database" path="cash_flow_database" />
+    <include domain="database" path="cash_flow_database-wal" />
+    <include domain="database" path="cash_flow_database-shm" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

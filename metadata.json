@@ -1,0 +1,6 @@
+{
+  "name": "CashFlow",
+  "description": "Track personal cash flow, periodic income and expenses, project balances across scenarios, and monitor safety thresholds.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
