@@ -324,8 +324,59 @@ fun SettingsScreen(
                     }
                 }
 
+                // Detailed notification configuration summary
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Average Case Alerts:", style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                text = if (settings.notifyAverageCase) "Enabled" else "Disabled",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (settings.notifyAverageCase) EmeraldPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Worst-Case Alerts:", style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                text = if (settings.notifyWorstCase) "Enabled" else "Disabled",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (settings.notifyWorstCase) EmeraldPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Lookahead Horizon:", style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                text = "Next ${settings.notificationLookaheadDays} days",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
                 Text(
-                    text = "If any daily projection drops below this amount in either average or worst-case scenarios, a safety warning will be displayed.",
+                    text = "The app scans your projected balances up to ${settings.notificationLookaheadDays} days into the future and notifies you if either selected scenario breaches your safety threshold.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

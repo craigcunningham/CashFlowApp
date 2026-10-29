@@ -35,11 +35,15 @@ data class ActualAdjustmentEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0L,
     val periodicItemId: Long,
-    val occurrenceDateEpochDay: Long,
+    val occurrenceDateEpochDay: Long, // scheduled occurrence date
     val actualAmount: Double,
+    val actualDateEpochDay: Long = occurrenceDateEpochDay, // date actually paid/received
     val notes: String = "",
     val recordedAtEpochMillis: Long = System.currentTimeMillis()
-)
+) {
+    val effectiveActualDateEpochDay: Long
+        get() = if (actualDateEpochDay > 0) actualDateEpochDay else occurrenceDateEpochDay
+}
 
 @Entity(tableName = "user_settings")
 data class UserSettingsEntity(
@@ -50,6 +54,9 @@ data class UserSettingsEntity(
     val minimumThresholdAmount: Double = 1000.0,
     val currencySymbol: String = "$",
     val notifyBelowThreshold: Boolean = true,
+    val notifyAverageCase: Boolean = true,
+    val notifyWorstCase: Boolean = true,
+    val notificationLookaheadDays: Int = 30,
     val projectionHorizonMonths: Int = 6,
     val themeMode: String = "SYSTEM" // "SYSTEM", "LIGHT", "DARK"
 )

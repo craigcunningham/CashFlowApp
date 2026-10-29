@@ -256,7 +256,7 @@ fun TableLedgerCard(
                             color = EmeraldPrimary.copy(alpha = 0.18f)
                         ) {
                             Text(
-                                text = "ACTUAL",
+                                text = if (event.isDateRescheduled) "ACTUAL (RESCHEDULED)" else "ACTUAL",
                                 color = EmeraldPrimary,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
@@ -275,18 +275,27 @@ fun TableLedgerCard(
                 )
             }
 
-            // Row 2: Title and Category
+            // Row 2: Title and Category (with original date if rescheduled)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = event.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Column {
+                    Text(
+                        text = event.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (event.isDateRescheduled) {
+                        Text(
+                            text = "Originally scheduled for: ${event.scheduledDate.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldPrimary
+                        )
+                    }
+                }
                 Text(
                     text = event.category,
                     style = MaterialTheme.typography.labelSmall,

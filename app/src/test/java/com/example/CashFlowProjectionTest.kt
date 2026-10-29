@@ -215,4 +215,133 @@ class CashFlowProjectionTest {
         assertEquals(1, parsed.actuals.size)
         assertEquals(79.99, parsed.actuals[0].actualAmount, 0.01)
     }
+
+    @Test
+    fun testActualAdjustmentWithCustomRescheduledDate() {
+        val startDate = LocalDate.of(2026, 11, 1)
+        val scheduledDate = startDate.plusDays(4) // Nov 5
+        val rescheduledActualDate = startDate.plusDays(9) // Nov 10
+
+        val settings = UserSettingsEntity(
+            startingCashAmount = 2000.0,
+            startingDateEpochDay = startDate.toEpochDay(),
+            minimumThresholdAmount = 500.0,
+            projectionHorizonMonths = 1
+        )
+
+        val items = listOf(
+            CashFlowItemEntity(
+                id = 20,
+                title = "Gym Membership",
+                type = TransactionType.EXPENSE.name,
+                isPeriodic = true,
+                period = PeriodType.MONTHLY.name,
+                averageAmount = 60.0,
+                maximumAmount = 60.0,
+                startDateEpochDay = scheduledDate.toEpochDay(),
+                category = "Health"
+            )
+        )
+
+        val actuals = listOf(
+            ActualAdjustmentEntity(
+                id = 1,
+                periodicItemId = 20,
+                occurrenceDateEpochDay = scheduledDate.toEpochDay(),
+                actualAmount = 65.0,
+                actualDateEpochDay = rescheduledActualDate.toEpochDay(),
+                notes = "Delayed processing by bank"
+            )
+        )
+
+        val result = CashFlowProjectionEngine.calculateProjection(
+            settings = settings,
+            items = items,
+            actuals = actuals,
+            horizonMonths = 1
+        )
+
+        val event = result.allEvents.first { it.itemId == 20L }
+        assertTrue(event.isActual)
+        assertTrue(event.isDateRescheduled)
+        assertEquals(scheduledDate, event.scheduledDate)
+        assertEquals(rescheduledActualDate, event.date)
+        assertEquals(65.0, event.effectiveAvgAmount, 0.01)
+
+        // Check daily balance on Nov 5: still 2000 because payment was shifted to Nov 10!
+        val day5Point = result.dailyPoints.first { it.date == scheduledDate }
+        assertEquals(2000.0, day5Point.endingAvgBalance, 0.01)
+
+        // Check daily balance on Nov 10: 2000 - 65 = 1935
+        val day10Point = result.dailyPoints.first { it.date == rescheduledActualDate }
+        assertEquals(1935.0, day10Point.endingAvgBalance, 0.01)
+    }
+
+    @Test
+    fun testNotificationLookaheadBreachFiltering() {
+        val today = LocalDate.of(2026, 11, 1)
+        val breachDay = today.plusDays(40) // 40 days ahead
+
+        val settings = UserSettingsEntity(
+            startingCashAmount = 1000.0,
+            startingDateEpochDay = today.toEpochDay(),
+            minimumThresholdAmount = 500.0,
+            notifyBelowThreshold = true,
+            notifyAverageCase = true,
+            notifyWorstCase = true,
+            notificationLookaheadDays = 30
+        )
+
+        val items = listOf(
+            CashFlowItemEntity(
+                id = 30,
+                title = "Insurance Premium",
+                type = TransactionType.EXPENSE.name,
+                isPeriodic = false,
+                period = PeriodType.NONE.name,
+                averageAmount = 700.0, // 1000 - 700 = 300, below 500 threshold
+                maximumAmount = 800.0,
+                startDateEpochDay = breachDay.toEpochDay(),
+                category = "Insurance"
+            )
+        )
+
+        val result = CashFlowProjectionEngine.calculateProjection(
+            settings = settings,
+            items = items,
+            actuals = emptyList(),
+            horizonMonths = 2
+        )
+
+        assertTrue(result.isThresholdBreachedAvg)
+
+        // 1. With 30-day lookahead: breach is 40 days away, so should return null (no alert)
+        val breach30Days = result.getBreachWithinLookahead(
+            lookaheadDays = 30,
+            checkAvg = true,
+            checkWorstCase = true,
+            fromDate = today
+        )
+        org.junit.Assert.assertNull(breach30Days)
+
+        // 2. With 60-day lookahead: breach is 40 days away, so should alert!
+        val breach60Days = result.getBreachWithinLookahead(
+            lookaheadDays = 60,
+            checkAvg = true,
+            checkWorstCase = true,
+            fromDate = today
+        )
+        assertNotNull(breach60Days)
+        assertEquals(breachDay, breach60Days?.breachDate)
+        assertEquals(40L, breach60Days?.daysAhead)
+
+        // 3. If Average Case alerts are turned OFF, but breach is only average:
+        val breachAvgDisabled = result.getBreachWithinLookahead(
+            lookaheadDays = 60,
+            checkAvg = false,
+            checkWorstCase = false,
+            fromDate = today
+        )
+        org.junit.Assert.assertNull(breachAvgDisabled)
+    }
 }

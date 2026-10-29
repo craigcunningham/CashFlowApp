@@ -15,18 +15,23 @@ data class CashFlowEvent(
     val category: String,
     val isPeriodic: Boolean,
     val period: PeriodType,
-    val date: LocalDate,
+    val date: LocalDate, // effective date applied (actual date if edited, otherwise scheduled)
+    val scheduledDate: LocalDate = date, // original scheduled occurrence date
     val avgAmount: Double,
     val maxAmount: Double,
     val isActual: Boolean,
     val actualAmount: Double?,
+    val actualDate: LocalDate? = null,
     val effectiveAvgAmount: Double,
     val effectiveMaxAmount: Double,
     val notes: String = "",
     // Running balance after this transaction
     var runningAvgBalance: Double = 0.0,
     var runningMaxBalance: Double = 0.0
-)
+) {
+    val isDateRescheduled: Boolean
+        get() = isActual && actualDate != null && actualDate != scheduledDate
+}
 
 data class DailyProjection(
     val date: LocalDate,
@@ -38,6 +43,13 @@ data class DailyProjection(
     val events: List<CashFlowEvent>,
     val isBelowThresholdAvg: Boolean,
     val isBelowThresholdMax: Boolean
+)
+
+data class LookaheadBreachInfo(
+    val breachDate: LocalDate,
+    val amount: Double,
+    val isWorstCase: Boolean,
+    val daysAhead: Long
 )
 
 data class ProjectionResult(
@@ -60,7 +72,67 @@ data class ProjectionResult(
     val totalIncomeAvg: Double,
     val totalExpenseAvg: Double,
     val totalExpenseMax: Double
-)
+) {
+    fun getBreachWithinLookahead(
+        lookaheadDays: Int,
+        checkAvg: Boolean,
+        checkWorstCase: Boolean,
+        fromDate: LocalDate = LocalDate.now()
+    ): LookaheadBreachInfo? {
+        val lookaheadCutoff = fromDate.plusDays(lookaheadDays.toLong())
+
+        val avgBreach = if (checkAvg && thresholdBreachDateAvg != null &&
+            !thresholdBreachDateAvg.isBefore(fromDate) &&
+            !thresholdBreachDateAvg.isAfter(lookaheadCutoff)
+        ) {
+            thresholdBreachDateAvg
+        } else null
+
+        val worstBreach = if (checkWorstCase && thresholdBreachDateMax != null &&
+            !thresholdBreachDateMax.isBefore(fromDate) &&
+            !thresholdBreachDateMax.isAfter(lookaheadCutoff)
+        ) {
+            thresholdBreachDateMax
+        } else null
+
+        return when {
+            avgBreach != null && worstBreach != null -> {
+                if (avgBreach.isBefore(worstBreach) || avgBreach == worstBreach) {
+                    LookaheadBreachInfo(
+                        breachDate = avgBreach,
+                        amount = lowestAvgBalance,
+                        isWorstCase = false,
+                        daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, avgBreach)
+                    )
+                } else {
+                    LookaheadBreachInfo(
+                        breachDate = worstBreach,
+                        amount = lowestMaxBalance,
+                        isWorstCase = true,
+                        daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, worstBreach)
+                    )
+                }
+            }
+            avgBreach != null -> {
+                LookaheadBreachInfo(
+                    breachDate = avgBreach,
+                    amount = lowestAvgBalance,
+                    isWorstCase = false,
+                    daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, avgBreach)
+                )
+            }
+            worstBreach != null -> {
+                LookaheadBreachInfo(
+                    breachDate = worstBreach,
+                    amount = lowestMaxBalance,
+                    isWorstCase = true,
+                    daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, worstBreach)
+                )
+            }
+            else -> null
+        }
+    }
+}
 
 object CashFlowProjectionEngine {
 
@@ -93,6 +165,11 @@ object CashFlowProjectionEngine {
                     val actualAdj = actualMap[item.id to itemStartDate.toEpochDay()]
                     val isActual = actualAdj != null
                     val actualAmt = actualAdj?.actualAmount
+                    val actualDate = if (isActual && actualAdj != null) {
+                        LocalDate.ofEpochDay(actualAdj.effectiveActualDateEpochDay)
+                    } else null
+                    val effectiveDate = actualDate ?: itemStartDate
+
                     val effAvg = actualAmt ?: item.averageAmount
                     val effMax = actualAmt ?: item.maximumAmount
 
@@ -105,11 +182,13 @@ object CashFlowProjectionEngine {
                             category = item.category,
                             isPeriodic = false,
                             period = PeriodType.NONE,
-                            date = itemStartDate,
+                            date = effectiveDate,
+                            scheduledDate = itemStartDate,
                             avgAmount = item.averageAmount,
                             maxAmount = item.maximumAmount,
                             isActual = isActual,
                             actualAmount = actualAmt,
+                            actualDate = actualDate,
                             effectiveAvgAmount = effAvg,
                             effectiveMaxAmount = effMax,
                             notes = actualAdj?.notes ?: item.notes
@@ -138,6 +217,11 @@ object CashFlowProjectionEngine {
                         val actualAdj = actualMap[item.id to epochDay]
                         val isActual = actualAdj != null
                         val actualAmt = actualAdj?.actualAmount
+                        val actualDate = if (isActual && actualAdj != null) {
+                            LocalDate.ofEpochDay(actualAdj.effectiveActualDateEpochDay)
+                        } else null
+                        val effectiveDate = actualDate ?: currentOccurrence
+
                         val effAvg = actualAmt ?: item.averageAmount
                         val effMax = actualAmt ?: item.maximumAmount
 
@@ -150,11 +234,13 @@ object CashFlowProjectionEngine {
                                 category = item.category,
                                 isPeriodic = true,
                                 period = period,
-                                date = currentOccurrence,
+                                date = effectiveDate,
+                                scheduledDate = currentOccurrence,
                                 avgAmount = item.averageAmount,
                                 maxAmount = item.maximumAmount,
                                 isActual = isActual,
                                 actualAmount = actualAmt,
+                                actualDate = actualDate,
                                 effectiveAvgAmount = effAvg,
                                 effectiveMaxAmount = effMax,
                                 notes = actualAdj?.notes ?: item.notes
@@ -168,7 +254,7 @@ object CashFlowProjectionEngine {
             }
         }
 
-        // Sort events chronologically, with income processed before expenses on the same day
+        // Sort events chronologically by effective date, with income processed before expenses on the same day
         generatedEvents.sortWith(
             compareBy<CashFlowEvent> { it.date }
                 .thenBy { if (it.type == TransactionType.INCOME) 0 else 1 }

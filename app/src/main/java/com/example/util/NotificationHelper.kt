@@ -39,7 +39,8 @@ object NotificationHelper {
         threshold: Double,
         projectedAmount: Double,
         breachDate: LocalDate,
-        isWorstCase: Boolean
+        isWorstCase: Boolean,
+        daysAhead: Long = 0L
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -66,12 +67,14 @@ object NotificationHelper {
 
         val dateStr = breachDate.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
         val scenario = if (isWorstCase) "worst-case" else "average"
+        val timeAheadText = if (daysAhead <= 0L) "today" else if (daysAhead == 1L) "tomorrow" else "in $daysAhead days"
         val title = "⚠️ Cash Flow Warning: Low Balance Alert"
         val message = String.format(
             Locale.US,
-            "Balance projected to drop to $%.2f on %s (%s scenario), below your $%.2f safety threshold.",
+            "Balance projected to drop to $%,.0f on %s (%s, %s scenario), below your $%,.0f safety threshold.",
             projectedAmount,
             dateStr,
+            timeAheadText,
             scenario,
             threshold
         )

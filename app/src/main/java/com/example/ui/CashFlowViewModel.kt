@@ -134,20 +134,25 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 horizonMonths = horizon
             )
 
-            // Check if notification should fire
-            if (settings.notifyBelowThreshold && (projection.isThresholdBreachedAvg || projection.isThresholdBreachedMax)) {
-                val breachDate = projection.thresholdBreachDateAvg ?: projection.thresholdBreachDateMax
-                if (breachDate != null && breachDate.toEpochDay() != lastNotifiedBreachEpochDay) {
-                    lastNotifiedBreachEpochDay = breachDate.toEpochDay()
-                    val breachAmt = if (projection.isThresholdBreachedAvg) projection.lowestAvgBalance else projection.lowestMaxBalance
-                    NotificationHelper.showLowCashAlertNotification(
-                        context = getApplication(),
-                        threshold = settings.minimumThresholdAmount,
-                        projectedAmount = breachAmt,
-                        breachDate = breachDate,
-                        isWorstCase = !projection.isThresholdBreachedAvg && projection.isThresholdBreachedMax
-                    )
-                }
+            // Check if notification should fire according to configured lookahead and scenarios
+            val breachInfo = if (settings.notifyBelowThreshold) {
+                projection.getBreachWithinLookahead(
+                    lookaheadDays = settings.notificationLookaheadDays,
+                    checkAvg = settings.notifyAverageCase,
+                    checkWorstCase = settings.notifyWorstCase
+                )
+            } else null
+
+            if (breachInfo != null && breachInfo.breachDate.toEpochDay() != lastNotifiedBreachEpochDay) {
+                lastNotifiedBreachEpochDay = breachInfo.breachDate.toEpochDay()
+                NotificationHelper.showLowCashAlertNotification(
+                    context = getApplication(),
+                    threshold = settings.minimumThresholdAmount,
+                    projectedAmount = breachInfo.amount,
+                    breachDate = breachInfo.breachDate,
+                    isWorstCase = breachInfo.isWorstCase,
+                    daysAhead = breachInfo.daysAhead
+                )
             }
 
             CashFlowUiState(
@@ -228,12 +233,22 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         _isThresholdDialogVisible.value = false
     }
 
-    fun updateThreshold(threshold: Double, notify: Boolean) {
+    fun updateThreshold(
+        threshold: Double,
+        notifyAverage: Boolean,
+        notifyWorstCase: Boolean,
+        lookaheadDays: Int
+    ) {
         viewModelScope.launch {
-            repository.updateThreshold(threshold, notify)
+            repository.updateThreshold(
+                threshold = threshold,
+                notifyAverage = notifyAverage,
+                notifyWorstCase = notifyWorstCase,
+                lookaheadDays = lookaheadDays
+            )
             _isThresholdDialogVisible.value = false
             _bannerDismissed.value = false // Re-enable banner if threshold modified
-            _userFeedbackMessage.value = "Minimum safety threshold updated to $${String.format(java.util.Locale.US, "%.2f", threshold)}"
+            _userFeedbackMessage.value = "Safety threshold & notification rules updated"
         }
     }
 
@@ -299,12 +314,19 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         _recordingActualEvent.value = null
     }
 
-    fun saveActual(itemId: Long, occurrenceDate: LocalDate, actualAmount: Double, notes: String) {
+    fun saveActual(
+        itemId: Long,
+        occurrenceDate: LocalDate,
+        actualAmount: Double,
+        actualDate: LocalDate = occurrenceDate,
+        notes: String = ""
+    ) {
         viewModelScope.launch {
             repository.recordActual(
                 itemId = itemId,
                 occurrenceEpochDay = occurrenceDate.toEpochDay(),
                 actualAmount = actualAmount,
+                actualDateEpochDay = actualDate.toEpochDay(),
                 notes = notes
             )
             _isActualDialogVisible.value = false

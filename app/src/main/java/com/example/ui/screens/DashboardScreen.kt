@@ -333,7 +333,7 @@ fun DashboardEventRow(
                                 color = EmeraldPrimary.copy(alpha = 0.18f)
                             ) {
                                 Text(
-                                    text = "ACTUAL",
+                                    text = if (event.isDateRescheduled) "ACTUAL (RESCHEDULED)" else "ACTUAL",
                                     color = EmeraldPrimary,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
@@ -343,8 +343,14 @@ fun DashboardEventRow(
                         }
                     }
 
+                    val dateText = if (event.isDateRescheduled) {
+                        "Paid/Recv: ${event.date.format(DateTimeFormatter.ofPattern("MMM dd"))} (was ${event.scheduledDate.format(DateTimeFormatter.ofPattern("MMM dd"))}) • ${if (event.isPeriodic) event.period.label else "Ad-hoc"} • ${event.category}"
+                    } else {
+                        "${event.date.format(DateTimeFormatter.ofPattern("MMM dd"))} • ${if (event.isPeriodic) event.period.label else "Ad-hoc"} • ${event.category}"
+                    }
+
                     Text(
-                        text = "${event.date.format(DateTimeFormatter.ofPattern("MMM dd"))} • ${if (event.isPeriodic) event.period.label else "Ad-hoc"} • ${event.category}",
+                        text = dateText,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -35,7 +35,7 @@ object DataBackupManager {
     ): String {
         val root = JSONObject()
         root.put("format", "CashFlow_Backup")
-        root.put("version", 1)
+        root.put("version", 2)
         root.put("exportedAt", System.currentTimeMillis())
 
         // Settings JSON
@@ -45,6 +45,9 @@ object DataBackupManager {
             put("minimumThresholdAmount", settings.minimumThresholdAmount)
             put("currencySymbol", settings.currencySymbol)
             put("notifyBelowThreshold", settings.notifyBelowThreshold)
+            put("notifyAverageCase", settings.notifyAverageCase)
+            put("notifyWorstCase", settings.notifyWorstCase)
+            put("notificationLookaheadDays", settings.notificationLookaheadDays)
             put("projectionHorizonMonths", settings.projectionHorizonMonths)
             put("themeMode", settings.themeMode)
         }
@@ -80,6 +83,7 @@ object DataBackupManager {
                 put("id", actual.id)
                 put("periodicItemId", actual.periodicItemId)
                 put("occurrenceDateEpochDay", actual.occurrenceDateEpochDay)
+                put("actualDateEpochDay", actual.effectiveActualDateEpochDay)
                 put("actualAmount", actual.actualAmount)
                 put("notes", actual.notes)
                 put("recordedAtEpochMillis", actual.recordedAtEpochMillis)
@@ -124,13 +128,17 @@ object DataBackupManager {
         val exportedAt = root.optLong("exportedAt", System.currentTimeMillis())
 
         val settingsObj = root.optJSONObject("settings") ?: JSONObject()
+        val notifyGeneral = settingsObj.optBoolean("notifyBelowThreshold", true)
         val settings = UserSettingsEntity(
             id = 1,
             startingCashAmount = settingsObj.optDouble("startingCashAmount", 5000.0),
             startingDateEpochDay = settingsObj.optLong("startingDateEpochDay", LocalDate.now().toEpochDay()),
             minimumThresholdAmount = settingsObj.optDouble("minimumThresholdAmount", 1000.0),
             currencySymbol = settingsObj.optString("currencySymbol", "$"),
-            notifyBelowThreshold = settingsObj.optBoolean("notifyBelowThreshold", true),
+            notifyBelowThreshold = notifyGeneral,
+            notifyAverageCase = settingsObj.optBoolean("notifyAverageCase", notifyGeneral),
+            notifyWorstCase = settingsObj.optBoolean("notifyWorstCase", notifyGeneral),
+            notificationLookaheadDays = settingsObj.optInt("notificationLookaheadDays", 30),
             projectionHorizonMonths = settingsObj.optInt("projectionHorizonMonths", 6),
             themeMode = settingsObj.optString("themeMode", "SYSTEM")
         )
@@ -161,12 +169,15 @@ object DataBackupManager {
         val actualsArray = root.optJSONArray("actuals") ?: JSONArray()
         for (i in 0 until actualsArray.length()) {
             val obj = actualsArray.getJSONObject(i)
+            val occDay = obj.getLong("occurrenceDateEpochDay")
+            val actDay = obj.optLong("actualDateEpochDay", occDay)
             actuals.add(
                 ActualAdjustmentEntity(
                     id = obj.optLong("id", 0L),
                     periodicItemId = obj.getLong("periodicItemId"),
-                    occurrenceDateEpochDay = obj.getLong("occurrenceDateEpochDay"),
+                    occurrenceDateEpochDay = occDay,
                     actualAmount = obj.getDouble("actualAmount"),
+                    actualDateEpochDay = if (actDay > 0) actDay else occDay,
                     notes = obj.optString("notes", ""),
                     recordedAtEpochMillis = obj.optLong("recordedAtEpochMillis", System.currentTimeMillis())
                 )

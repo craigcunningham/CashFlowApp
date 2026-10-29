@@ -129,12 +129,14 @@ class CashFlowRepository(private val dao: CashFlowDao) {
         itemId: Long,
         occurrenceEpochDay: Long,
         actualAmount: Double,
+        actualDateEpochDay: Long = occurrenceEpochDay,
         notes: String = ""
     ) {
         val entity = ActualAdjustmentEntity(
             periodicItemId = itemId,
             occurrenceDateEpochDay = occurrenceEpochDay,
             actualAmount = actualAmount,
+            actualDateEpochDay = actualDateEpochDay,
             notes = notes
         )
         dao.insertOrUpdateActual(entity)
@@ -163,7 +165,43 @@ class CashFlowRepository(private val dao: CashFlowDao) {
         dao.insertOrUpdateSettings(
             current.copy(
                 minimumThresholdAmount = threshold,
-                notifyBelowThreshold = notify
+                notifyBelowThreshold = notify,
+                notifyAverageCase = notify,
+                notifyWorstCase = notify
+            )
+        )
+    }
+
+    suspend fun updateThreshold(
+        threshold: Double,
+        notifyAverage: Boolean,
+        notifyWorstCase: Boolean,
+        lookaheadDays: Int
+    ) {
+        val current = dao.getUserSettingsDirect() ?: UserSettingsEntity()
+        dao.insertOrUpdateSettings(
+            current.copy(
+                minimumThresholdAmount = threshold,
+                notifyBelowThreshold = notifyAverage || notifyWorstCase,
+                notifyAverageCase = notifyAverage,
+                notifyWorstCase = notifyWorstCase,
+                notificationLookaheadDays = lookaheadDays
+            )
+        )
+    }
+
+    suspend fun updateNotificationConfig(
+        notifyAverage: Boolean,
+        notifyWorstCase: Boolean,
+        lookaheadDays: Int
+    ) {
+        val current = dao.getUserSettingsDirect() ?: UserSettingsEntity()
+        dao.insertOrUpdateSettings(
+            current.copy(
+                notifyBelowThreshold = notifyAverage || notifyWorstCase,
+                notifyAverageCase = notifyAverage,
+                notifyWorstCase = notifyWorstCase,
+                notificationLookaheadDays = lookaheadDays
             )
         )
     }

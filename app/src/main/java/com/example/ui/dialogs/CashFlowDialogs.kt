@@ -40,6 +40,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -167,12 +168,17 @@ fun StartingCashDialog(
 @Composable
 fun SafetyThresholdDialog(
     currentThreshold: Double,
-    currentNotify: Boolean,
-    onConfirm: (threshold: Double, notify: Boolean) -> Unit,
+    currentNotifyAvg: Boolean,
+    currentNotifyWorst: Boolean,
+    currentLookaheadDays: Int,
+    onConfirm: (threshold: Double, notifyAvg: Boolean, notifyWorst: Boolean, lookaheadDays: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var thresholdText by remember { mutableStateOf(String.format(Locale.US, "%.2f", currentThreshold)) }
-    var notify by remember { mutableStateOf(currentNotify) }
+    var notifyAvg by remember { mutableStateOf(currentNotifyAvg) }
+    var notifyWorst by remember { mutableStateOf(currentNotifyWorst) }
+    var lookaheadDays by remember { mutableIntStateOf(currentLookaheadDays) }
+    var lookaheadText by remember { mutableStateOf(currentLookaheadDays.toString()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -181,7 +187,10 @@ fun SafetyThresholdDialog(
             Text("Safety Buffer & Alerts", fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Text(
                     "Set the minimum cash amount you wish to maintain. The app will warn you if projected cash flow dips below this safety floor.",
                     style = MaterialTheme.typography.bodySmall,
@@ -203,32 +212,93 @@ fun SafetyThresholdDialog(
                     modifier = Modifier.fillMaxWidth().testTag("threshold_input")
                 )
 
+                Text(
+                    "Notification Triggers",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                // Toggle 1: Average Case
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = null,
-                            tint = EmeraldPrimary
-                        )
-                        Column {
-                            Text("Threshold Notifications", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Alert when projection breaches buffer", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Average Case Alerts", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Alert when average projection breaches buffer", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 
                     Switch(
-                        checked = notify,
-                        onCheckedChange = { notify = it },
-                        modifier = Modifier.testTag("notify_switch")
+                        checked = notifyAvg,
+                        onCheckedChange = { notifyAvg = it },
+                        modifier = Modifier.testTag("notify_avg_switch")
                     )
+                }
+
+                // Toggle 2: Worst Case
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Worst-Case Alerts", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Alert when maximum cost projection breaches buffer", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    Switch(
+                        checked = notifyWorst,
+                        onCheckedChange = { notifyWorst = it },
+                        modifier = Modifier.testTag("notify_worst_switch")
+                    )
+                }
+
+                // Lookahead Horizon Configuration
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Notification Lookahead Window",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "Only trigger notifications if a cash breach is projected within this many days ahead.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = lookaheadText,
+                        onValueChange = { input ->
+                            lookaheadText = input
+                            val parsed = input.toIntOrNull()
+                            if (parsed != null && parsed in 1..365) {
+                                lookaheadDays = parsed
+                            }
+                        },
+                        label = { Text("Lookahead Window (Days)") },
+                        suffix = { Text("days") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("lookahead_days_input")
+                    )
+
+                    // Quick Chips for Lookahead
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(7, 14, 30, 60, 90).forEach { days ->
+                            FilterChip(
+                                selected = lookaheadDays == days,
+                                onClick = {
+                                    lookaheadDays = days
+                                    lookaheadText = days.toString()
+                                },
+                                label = { Text("${days}d", fontSize = 11.sp) }
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -236,10 +306,13 @@ fun SafetyThresholdDialog(
             Button(
                 onClick = {
                     val parsed = thresholdText.toDoubleOrNull()
+                    val parsedDays = lookaheadText.toIntOrNull() ?: lookaheadDays
                     if (parsed == null || parsed < 0) {
                         errorMessage = "Please enter a valid positive threshold"
+                    } else if (parsedDays < 1 || parsedDays > 365) {
+                        errorMessage = "Lookahead must be between 1 and 365 days"
                     } else {
-                        onConfirm(parsed, notify)
+                        onConfirm(parsed, notifyAvg, notifyWorst, parsedDays)
                     }
                 },
                 modifier = Modifier.testTag("save_threshold_button")
@@ -574,10 +647,11 @@ fun AddEditItemDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordActualDialog(
     event: CashFlowEvent,
-    onSaveActual: (actualAmount: Double, notes: String) -> Unit,
+    onSaveActual: (actualAmount: Double, actualDate: LocalDate, notes: String) -> Unit,
     onRemoveActual: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -590,8 +664,36 @@ fun RecordActualDialog(
             }
         )
     }
+    var actualDate by remember {
+        mutableStateOf(event.actualDate ?: event.date)
+    }
+    var showDatePicker by remember { mutableStateOf(false) }
     var notes by remember { mutableStateOf(event.notes) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = actualDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        actualDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                    }
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -599,7 +701,10 @@ fun RecordActualDialog(
             Text("Update with Actual Amount", fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text(
                     text = event.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -608,7 +713,7 @@ fun RecordActualDialog(
                 )
 
                 Text(
-                    text = "Scheduled for: ${event.date.format(DateTimeFormatter.ofPattern("EEE, MMM dd, yyyy"))}",
+                    text = "Originally scheduled for: ${event.scheduledDate.format(DateTimeFormatter.ofPattern("EEE, MMM dd, yyyy"))}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -629,6 +734,7 @@ fun RecordActualDialog(
                     )
                 }
 
+                // Actual Amount
                 OutlinedTextField(
                     value = actualAmountText,
                     onValueChange = {
@@ -644,6 +750,37 @@ fun RecordActualDialog(
                     modifier = Modifier.fillMaxWidth().testTag("actual_amount_input")
                 )
 
+                // Editable Actual Date
+                OutlinedTextField(
+                    value = actualDate.format(DateTimeFormatter.ofPattern("EEE, MMM dd, yyyy")),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Actual Transaction Date") },
+                    trailingIcon = {
+                        IconButton(
+                            onClick = { showDatePicker = true },
+                            modifier = Modifier.testTag("actual_date_picker_button")
+                        ) {
+                            Icon(Icons.Default.CalendarMonth, contentDescription = "Select Actual Date")
+                        }
+                    },
+                    supportingText = {
+                        if (actualDate != event.scheduledDate) {
+                            Text(
+                                "Adjusted from scheduled date: ${event.scheduledDate.format(DateTimeFormatter.ofPattern("MMM dd"))}",
+                                color = EmeraldPrimary
+                            )
+                        } else {
+                            Text("Tap calendar icon to change date paid/received")
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDatePicker = true }
+                        .testTag("actual_date_input")
+                )
+
+                // Notes
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
@@ -670,7 +807,7 @@ fun RecordActualDialog(
                     if (parsed == null || parsed < 0) {
                         errorMessage = "Please enter a valid amount"
                     } else {
-                        onSaveActual(parsed, notes)
+                        onSaveActual(parsed, actualDate, notes)
                     }
                 },
                 modifier = Modifier.testTag("save_actual_button")

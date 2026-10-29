@@ -313,8 +313,12 @@ fun CashFlowApp(
     if (uiState.isThresholdDialogVisible) {
         SafetyThresholdDialog(
             currentThreshold = uiState.settings.minimumThresholdAmount,
-            currentNotify = uiState.settings.notifyBelowThreshold,
-            onConfirm = { threshold, notify -> viewModel.updateThreshold(threshold, notify) },
+            currentNotifyAvg = uiState.settings.notifyAverageCase,
+            currentNotifyWorst = uiState.settings.notifyWorstCase,
+            currentLookaheadDays = uiState.settings.notificationLookaheadDays,
+            onConfirm = { threshold, notifyAvg, notifyWorst, lookaheadDays ->
+                viewModel.updateThreshold(threshold, notifyAvg, notifyWorst, lookaheadDays)
+            },
             onDismiss = { viewModel.hideThresholdDialog() }
         )
     }
@@ -334,11 +338,11 @@ fun CashFlowApp(
         val event = uiState.recordingActualEvent!!
         RecordActualDialog(
             event = event,
-            onSaveActual = { amount, notes ->
-                viewModel.saveActual(event.itemId, event.date, amount, notes)
+            onSaveActual = { amount, actualDate, notes ->
+                viewModel.saveActual(event.itemId, event.scheduledDate, amount, actualDate, notes)
             },
             onRemoveActual = {
-                viewModel.removeActual(event.itemId, event.date)
+                viewModel.removeActual(event.itemId, event.scheduledDate)
             },
             onDismiss = { viewModel.hideRecordActualDialog() }
         )
