@@ -27,7 +27,8 @@ data class CashFlowEvent(
     val notes: String = "",
     // Running balance after this transaction
     var runningAvgBalance: Double = 0.0,
-    var runningMaxBalance: Double = 0.0
+    var runningMaxBalance: Double = 0.0,
+    var isWorstCaseActive: Boolean = true
 ) {
     val isDateRescheduled: Boolean
         get() = isActual && actualDate != null && actualDate != scheduledDate
@@ -42,7 +43,8 @@ data class DailyProjection(
     val dayExpenseMax: Double,
     val events: List<CashFlowEvent>,
     val isBelowThresholdAvg: Boolean,
-    val isBelowThresholdMax: Boolean
+    val isBelowThresholdMax: Boolean,
+    val isWorstCaseActive: Boolean = true
 )
 
 data class LookaheadBreachInfo(
@@ -57,6 +59,8 @@ data class ProjectionResult(
     val endDate: LocalDate,
     val startingBalance: Double,
     val minimumThreshold: Double,
+    val worstCaseCutoffDate: LocalDate = LocalDate.now().plusDays(60),
+    val worstCaseProjectionDays: Int = 60,
     val dailyPoints: List<DailyProjection>,
     val allEvents: List<CashFlowEvent>,
     val finalAvgBalance: Double,
@@ -81,52 +85,55 @@ data class ProjectionResult(
     ): LookaheadBreachInfo? {
         val lookaheadCutoff = fromDate.plusDays(lookaheadDays.toLong())
 
-        val avgBreach = if (checkAvg && thresholdBreachDateAvg != null &&
-            !thresholdBreachDateAvg.isBefore(fromDate) &&
-            !thresholdBreachDateAvg.isAfter(lookaheadCutoff)
-        ) {
-            thresholdBreachDateAvg
+        val firstAvgPoint = if (checkAvg) {
+            dailyPoints.firstOrNull { point ->
+                !point.date.isBefore(fromDate) &&
+                !point.date.isAfter(lookaheadCutoff) &&
+                point.isBelowThresholdAvg
+            }
         } else null
 
-        val worstBreach = if (checkWorstCase && thresholdBreachDateMax != null &&
-            !thresholdBreachDateMax.isBefore(fromDate) &&
-            !thresholdBreachDateMax.isAfter(lookaheadCutoff)
-        ) {
-            thresholdBreachDateMax
+        val firstWorstPoint = if (checkWorstCase) {
+            dailyPoints.firstOrNull { point ->
+                point.isWorstCaseActive &&
+                !point.date.isBefore(fromDate) &&
+                !point.date.isAfter(lookaheadCutoff) &&
+                point.isBelowThresholdMax
+            }
         } else null
 
         return when {
-            avgBreach != null && worstBreach != null -> {
-                if (avgBreach.isBefore(worstBreach) || avgBreach == worstBreach) {
+            firstAvgPoint != null && firstWorstPoint != null -> {
+                if (firstAvgPoint.date.isBefore(firstWorstPoint.date) || firstAvgPoint.date == firstWorstPoint.date) {
                     LookaheadBreachInfo(
-                        breachDate = avgBreach,
-                        amount = lowestAvgBalance,
+                        breachDate = firstAvgPoint.date,
+                        amount = firstAvgPoint.endingAvgBalance,
                         isWorstCase = false,
-                        daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, avgBreach)
+                        daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, firstAvgPoint.date)
                     )
                 } else {
                     LookaheadBreachInfo(
-                        breachDate = worstBreach,
-                        amount = lowestMaxBalance,
+                        breachDate = firstWorstPoint.date,
+                        amount = firstWorstPoint.endingMaxBalance,
                         isWorstCase = true,
-                        daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, worstBreach)
+                        daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, firstWorstPoint.date)
                     )
                 }
             }
-            avgBreach != null -> {
+            firstAvgPoint != null -> {
                 LookaheadBreachInfo(
-                    breachDate = avgBreach,
-                    amount = lowestAvgBalance,
+                    breachDate = firstAvgPoint.date,
+                    amount = firstAvgPoint.endingAvgBalance,
                     isWorstCase = false,
-                    daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, avgBreach)
+                    daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, firstAvgPoint.date)
                 )
             }
-            worstBreach != null -> {
+            firstWorstPoint != null -> {
                 LookaheadBreachInfo(
-                    breachDate = worstBreach,
-                    amount = lowestMaxBalance,
+                    breachDate = firstWorstPoint.date,
+                    amount = firstWorstPoint.endingMaxBalance,
                     isWorstCase = true,
-                    daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, worstBreach)
+                    daysAhead = java.time.temporal.ChronoUnit.DAYS.between(fromDate, firstWorstPoint.date)
                 )
             }
             else -> null
@@ -269,18 +276,29 @@ object CashFlowProjectionEngine {
         var totalExpenseAvg = 0.0
         var totalExpenseMax = 0.0
 
+        val today = LocalDate.now()
+        val baseDate = if (startDate.isAfter(today)) startDate else today
+        val worstCaseCutoffDate = baseDate.plusDays(settings.worstCaseProjectionDays.toLong())
+
         for (event in generatedEvents) {
+            val isEventWorstCaseActive = !event.date.isAfter(worstCaseCutoffDate)
+            event.isWorstCaseActive = isEventWorstCaseActive
+
             when (event.type) {
                 TransactionType.INCOME -> {
                     runningAvg += event.effectiveAvgAmount
-                    runningMax += event.effectiveAvgAmount
                     totalIncomeAvg += event.effectiveAvgAmount
+                    if (isEventWorstCaseActive) {
+                        runningMax += event.effectiveAvgAmount
+                    }
                 }
                 TransactionType.EXPENSE -> {
                     runningAvg -= event.effectiveAvgAmount
-                    runningMax -= event.effectiveMaxAmount
                     totalExpenseAvg += event.effectiveAvgAmount
-                    totalExpenseMax += event.effectiveMaxAmount
+                    if (isEventWorstCaseActive) {
+                        runningMax -= event.effectiveMaxAmount
+                        totalExpenseMax += event.effectiveMaxAmount
+                    }
                 }
             }
             event.runningAvgBalance = runningAvg
@@ -301,7 +319,7 @@ object CashFlowProjectionEngine {
         var lowestMaxDate: LocalDate? = startDate
 
         var breachDateAvg: LocalDate? = if (startBalance < threshold) startDate else null
-        var breachDateMax: LocalDate? = if (startBalance < threshold) startDate else null
+        var breachDateMax: LocalDate? = if (startBalance < threshold && !startDate.isAfter(worstCaseCutoffDate)) startDate else null
 
         while (!dayDate.isAfter(endDate)) {
             val dayEvents = eventsByDate[dayDate] ?: emptyList()
@@ -319,22 +337,26 @@ object CashFlowProjectionEngine {
             }
 
             currentDailyAvg = currentDailyAvg + dayIncome - dayExpAvg
-            currentDailyMax = currentDailyMax + dayIncome - dayExpMax
+
+            val isDayWorstCaseActive = !dayDate.isAfter(worstCaseCutoffDate)
+            if (isDayWorstCaseActive) {
+                currentDailyMax = currentDailyMax + dayIncome - dayExpMax
+                if (currentDailyMax < lowestMax) {
+                    lowestMax = currentDailyMax
+                    lowestMaxDate = dayDate
+                }
+                if (breachDateMax == null && currentDailyMax < threshold) {
+                    breachDateMax = dayDate
+                }
+            }
 
             if (currentDailyAvg < lowestAvg) {
                 lowestAvg = currentDailyAvg
                 lowestAvgDate = dayDate
             }
-            if (currentDailyMax < lowestMax) {
-                lowestMax = currentDailyMax
-                lowestMaxDate = dayDate
-            }
 
             if (breachDateAvg == null && currentDailyAvg < threshold) {
                 breachDateAvg = dayDate
-            }
-            if (breachDateMax == null && currentDailyMax < threshold) {
-                breachDateMax = dayDate
             }
 
             dailyPoints.add(
@@ -344,10 +366,11 @@ object CashFlowProjectionEngine {
                     endingMaxBalance = currentDailyMax,
                     dayIncomeAvg = dayIncome,
                     dayExpenseAvg = dayExpAvg,
-                    dayExpenseMax = dayExpMax,
+                    dayExpenseMax = if (isDayWorstCaseActive) dayExpMax else dayExpAvg,
                     events = dayEvents,
                     isBelowThresholdAvg = currentDailyAvg < threshold,
-                    isBelowThresholdMax = currentDailyMax < threshold
+                    isBelowThresholdMax = isDayWorstCaseActive && (currentDailyMax < threshold),
+                    isWorstCaseActive = isDayWorstCaseActive
                 )
             )
 
@@ -359,10 +382,12 @@ object CashFlowProjectionEngine {
             endDate = endDate,
             startingBalance = startBalance,
             minimumThreshold = threshold,
+            worstCaseCutoffDate = worstCaseCutoffDate,
+            worstCaseProjectionDays = settings.worstCaseProjectionDays,
             dailyPoints = dailyPoints,
             allEvents = generatedEvents,
             finalAvgBalance = currentDailyAvg,
-            finalMaxBalance = currentDailyMax,
+            finalMaxBalance = dailyPoints.lastOrNull { it.isWorstCaseActive }?.endingMaxBalance ?: currentDailyMax,
             lowestAvgBalance = lowestAvg,
             lowestAvgDate = lowestAvgDate,
             lowestMaxBalance = lowestMax,

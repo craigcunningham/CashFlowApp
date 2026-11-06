@@ -48,6 +48,7 @@ object DataBackupManager {
             put("notifyAverageCase", settings.notifyAverageCase)
             put("notifyWorstCase", settings.notifyWorstCase)
             put("notificationLookaheadDays", settings.notificationLookaheadDays)
+            put("worstCaseProjectionDays", settings.worstCaseProjectionDays)
             put("projectionHorizonMonths", settings.projectionHorizonMonths)
             put("themeMode", settings.themeMode)
         }
@@ -139,6 +140,7 @@ object DataBackupManager {
             notifyAverageCase = settingsObj.optBoolean("notifyAverageCase", notifyGeneral),
             notifyWorstCase = settingsObj.optBoolean("notifyWorstCase", notifyGeneral),
             notificationLookaheadDays = settingsObj.optInt("notificationLookaheadDays", 30),
+            worstCaseProjectionDays = settingsObj.optInt("worstCaseProjectionDays", 60),
             projectionHorizonMonths = settingsObj.optInt("projectionHorizonMonths", 6),
             themeMode = settingsObj.optString("themeMode", "SYSTEM")
         )

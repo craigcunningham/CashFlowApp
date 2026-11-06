@@ -1,15 +1,18 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.ActualAdjustmentEntity
 import com.example.data.local.entity.CashFlowItemEntity
+import com.example.data.local.entity.CustomCategoryEntity
 import com.example.data.local.entity.UserSettingsEntity
 import com.example.data.repository.CashFlowRepository
 import com.example.domain.engine.CashFlowEvent
 import com.example.domain.engine.CashFlowProjectionEngine
+import com.example.domain.engine.LookaheadBreachInfo
 import com.example.domain.engine.ProjectionResult
 import com.example.domain.model.PeriodType
 import com.example.domain.model.TransactionType
@@ -48,7 +51,11 @@ data class CashFlowUiState(
     val settings: UserSettingsEntity = UserSettingsEntity(),
     val items: List<CashFlowItemEntity> = emptyList(),
     val actuals: List<ActualAdjustmentEntity> = emptyList(),
+    val categories: List<CustomCategoryEntity> = emptyList(),
+    val expenseCategories: List<String> = emptyList(),
+    val incomeCategories: List<String> = emptyList(),
     val projection: ProjectionResult? = null,
+    val activeBreach: LookaheadBreachInfo? = null,
     val selectedTab: AppTab = AppTab.DASHBOARD,
     val selectedHorizonMonths: Int = 6,
     val tableFilter: TableFilter = TableFilter.ALL,
@@ -60,12 +67,14 @@ data class CashFlowUiState(
     val isActualDialogVisible: Boolean = false,
     val isStartingCashDialogVisible: Boolean = false,
     val isThresholdDialogVisible: Boolean = false,
+    val isCategoryManagerDialogVisible: Boolean = false,
     val userFeedbackMessage: String? = null
 )
 
 class CashFlowViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: CashFlowRepository
+    private val prefs = application.getSharedPreferences("cash_flow_prefs", Context.MODE_PRIVATE)
 
     private val _selectedTab = MutableStateFlow(AppTab.DASHBOARD)
     private val _selectedHorizonMonths = MutableStateFlow(6)
@@ -78,6 +87,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val _isActualDialogVisible = MutableStateFlow(false)
     private val _isStartingCashDialogVisible = MutableStateFlow(false)
     private val _isThresholdDialogVisible = MutableStateFlow(false)
+    private val _isCategoryManagerDialogVisible = MutableStateFlow(false)
     private val _userFeedbackMessage = MutableStateFlow<String?>(null)
 
     private var lastNotifiedBreachEpochDay: Long = -1L
@@ -96,6 +106,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             repository.userSettings,
             repository.allItems,
             repository.allActuals,
+            repository.allCategories,
             _selectedTab,
             _selectedHorizonMonths,
             _tableFilter,
@@ -107,6 +118,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             _isActualDialogVisible,
             _isStartingCashDialogVisible,
             _isThresholdDialogVisible,
+            _isCategoryManagerDialogVisible,
             _userFeedbackMessage
         ) { args ->
             val settings = (args[0] as? UserSettingsEntity) ?: UserSettingsEntity()
@@ -114,18 +126,35 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             val items = (args[1] as? List<CashFlowItemEntity>) ?: emptyList()
             @Suppress("UNCHECKED_CAST")
             val actuals = (args[2] as? List<ActualAdjustmentEntity>) ?: emptyList()
-            val tab = args[3] as AppTab
-            val horizon = args[4] as Int
-            val tFilter = args[5] as TableFilter
-            val sFilter = args[6] as ScenarioFilter
-            val dismissed = args[7] as Boolean
-            val editItem = args[8] as? CashFlowItemEntity
-            val itemDialog = args[9] as Boolean
-            val recordActual = args[10] as? CashFlowEvent
-            val actualDialog = args[11] as Boolean
-            val startCashDialog = args[12] as Boolean
-            val threshDialog = args[13] as Boolean
-            val feedbackMsg = args[14] as? String
+            @Suppress("UNCHECKED_CAST")
+            val allCats = (args[3] as? List<CustomCategoryEntity>) ?: emptyList()
+            val tab = args[4] as AppTab
+            val horizon = args[5] as Int
+            val tFilter = args[6] as TableFilter
+            val sFilter = args[7] as ScenarioFilter
+            val dismissed = args[8] as Boolean
+            val editItem = args[9] as? CashFlowItemEntity
+            val itemDialog = args[10] as Boolean
+            val recordActual = args[11] as? CashFlowEvent
+            val actualDialog = args[12] as Boolean
+            val startCashDialog = args[13] as Boolean
+            val threshDialog = args[14] as Boolean
+            val catManagerDialog = args[15] as Boolean
+            val feedbackMsg = args[16] as? String
+
+            val expenseList = allCats
+                .filter { it.type.equals("EXPENSE", ignoreCase = true) }
+                .map { it.name }
+                .ifEmpty {
+                    listOf("Housing", "Utilities", "Food", "Transportation", "Health", "Insurance", "Entertainment", "Debt", "Personal", "Other")
+                }
+
+            val incomeList = allCats
+                .filter { it.type.equals("INCOME", ignoreCase = true) }
+                .map { it.name }
+                .ifEmpty {
+                    listOf("Salary", "Freelance", "Investment", "Bonus", "Rental", "Other")
+                }
 
             val projection = CashFlowProjectionEngine.calculateProjection(
                 settings = settings,
@@ -155,23 +184,31 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 )
             }
 
+            val dismissedEpochDay = prefs.getLong("dismissed_breach_epoch_day", -1L)
+            val isBannerDismissed = dismissed || (breachInfo != null && dismissedEpochDay == breachInfo.breachDate.toEpochDay())
+
             CashFlowUiState(
                 isLoading = false,
                 settings = settings,
                 items = items,
                 actuals = actuals,
+                categories = allCats,
+                expenseCategories = expenseList,
+                incomeCategories = incomeList,
                 projection = projection,
+                activeBreach = breachInfo,
                 selectedTab = tab,
                 selectedHorizonMonths = horizon,
                 tableFilter = tFilter,
                 scenarioFilter = sFilter,
-                bannerDismissed = dismissed,
+                bannerDismissed = isBannerDismissed,
                 editingItem = editItem,
                 isItemDialogVisible = itemDialog,
                 recordingActualEvent = recordActual,
                 isActualDialogVisible = actualDialog,
                 isStartingCashDialogVisible = startCashDialog,
                 isThresholdDialogVisible = threshDialog,
+                isCategoryManagerDialogVisible = catManagerDialog,
                 userFeedbackMessage = feedbackMsg
             )
         }.stateIn(
@@ -201,7 +238,22 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun dismissBanner() {
+        val currentBreach = uiState.value.activeBreach
+        val epochDay = currentBreach?.breachDate?.toEpochDay() ?: LocalDate.now().toEpochDay()
+        prefs.edit().putLong("dismissed_breach_epoch_day", epochDay).apply()
         _bannerDismissed.value = true
+    }
+
+    fun muteWorstCaseAlerts() {
+        viewModelScope.launch {
+            val currentSettings = uiState.value.settings
+            repository.updateNotificationConfig(
+                notifyAverage = currentSettings.notifyAverageCase,
+                notifyWorstCase = false,
+                lookaheadDays = currentSettings.notificationLookaheadDays
+            )
+            _userFeedbackMessage.value = "Worst-case cash alerts turned off"
+        }
     }
 
     fun clearFeedbackMessage() {
@@ -237,24 +289,38 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         threshold: Double,
         notifyAverage: Boolean,
         notifyWorstCase: Boolean,
-        lookaheadDays: Int
+        lookaheadDays: Int,
+        worstCaseProjectionDays: Int = 60
     ) {
         viewModelScope.launch {
             repository.updateThreshold(
                 threshold = threshold,
                 notifyAverage = notifyAverage,
                 notifyWorstCase = notifyWorstCase,
-                lookaheadDays = lookaheadDays
+                lookaheadDays = lookaheadDays,
+                worstCaseProjectionDays = worstCaseProjectionDays
             )
             _isThresholdDialogVisible.value = false
             _bannerDismissed.value = false // Re-enable banner if threshold modified
-            _userFeedbackMessage.value = "Safety threshold & notification rules updated"
+            _userFeedbackMessage.value = "Safety threshold & worst-case window updated"
+        }
+    }
+
+    fun updateWorstCaseProjectionDays(days: Int) {
+        viewModelScope.launch {
+            repository.updateWorstCaseProjectionDays(days)
+            _userFeedbackMessage.value = "Worst-case calculation window set to $days days"
         }
     }
 
     // --- Item Dialog Actions ---
     fun openAddItemDialog(defaultType: TransactionType = TransactionType.EXPENSE, isPeriodic: Boolean = true) {
         val today = LocalDate.now()
+        val defaultCategory = if (defaultType == TransactionType.INCOME) {
+            uiState.value.incomeCategories.firstOrNull() ?: "Salary"
+        } else {
+            uiState.value.expenseCategories.firstOrNull() ?: "Housing"
+        }
         _editingItem.value = CashFlowItemEntity(
             id = 0L,
             title = "",
@@ -264,7 +330,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             averageAmount = 0.0,
             maximumAmount = 0.0,
             startDateEpochDay = today.toEpochDay(),
-            category = if (defaultType == TransactionType.INCOME) "Salary" else "Housing",
+            category = defaultCategory,
             isActive = true,
             notes = ""
         )
@@ -359,6 +425,47 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 _userFeedbackMessage.value = "Failed to restore backup: ${e.message}"
             }
+        }
+    }
+
+    // --- Category Management Actions ---
+    fun showCategoryManagerDialog() {
+        _isCategoryManagerDialogVisible.value = true
+    }
+
+    fun hideCategoryManagerDialog() {
+        _isCategoryManagerDialogVisible.value = false
+    }
+
+    fun addCategory(name: String, type: String = "EXPENSE") {
+        viewModelScope.launch {
+            val success = repository.addCategory(name, type)
+            if (success) {
+                _userFeedbackMessage.value = "Category '$name' added"
+            } else {
+                _userFeedbackMessage.value = "Category '$name' already exists or invalid"
+            }
+        }
+    }
+
+    fun renameCategory(oldName: String, newName: String, type: String = "EXPENSE") {
+        viewModelScope.launch {
+            repository.renameCategory(oldName, newName, type)
+            _userFeedbackMessage.value = "Category renamed to '$newName'"
+        }
+    }
+
+    fun deleteCategory(category: CustomCategoryEntity) {
+        viewModelScope.launch {
+            repository.deleteCategory(category)
+            _userFeedbackMessage.value = "Category '${category.name}' removed"
+        }
+    }
+
+    fun resetCategoriesToDefault() {
+        viewModelScope.launch {
+            repository.resetCategoriesToDefault()
+            _userFeedbackMessage.value = "Categories reset to defaults"
         }
     }
 }

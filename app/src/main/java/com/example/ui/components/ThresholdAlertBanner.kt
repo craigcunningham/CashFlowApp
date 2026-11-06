@@ -31,31 +31,33 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.domain.engine.ProjectionResult
+import com.example.domain.engine.LookaheadBreachInfo
 import com.example.ui.theme.ThresholdDanger
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
 fun ThresholdAlertBanner(
-    projection: ProjectionResult,
+    activeBreach: LookaheadBreachInfo?,
+    minimumThreshold: Double,
     isDismissed: Boolean,
     onDismiss: () -> Unit,
+    onMuteWorstCase: (() -> Unit)? = null,
     onViewInLedger: () -> Unit,
     onAdjustThreshold: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isBreached = projection.isThresholdBreachedAvg || projection.isThresholdBreachedMax
+    val shouldShow = activeBreach != null && !isDismissed
 
     AnimatedVisibility(
-        visible = isBreached && !isDismissed,
+        visible = shouldShow,
         enter = expandVertically(),
         exit = shrinkVertically()
     ) {
-        val breachDate = projection.thresholdBreachDateAvg ?: projection.thresholdBreachDateMax
-        val breachAmt = if (projection.isThresholdBreachedAvg) projection.lowestAvgBalance else projection.lowestMaxBalance
-        val dateFormatted = breachDate?.format(DateTimeFormatter.ofPattern("MMM dd, yyyy")) ?: "an upcoming date"
-        val isWorstCaseOnly = !projection.isThresholdBreachedAvg && projection.isThresholdBreachedMax
+        if (activeBreach == null) return@AnimatedVisibility
+
+        val isWorstCase = activeBreach.isWorstCase
+        val dateFormatted = activeBreach.breachDate.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
 
         Card(
             modifier = modifier
@@ -91,7 +93,7 @@ fun ThresholdAlertBanner(
                             modifier = Modifier.size(24.dp)
                         )
                         Text(
-                            text = if (isWorstCaseOnly) "Worst-Case Cash Alert" else "Low Cash Flow Warning",
+                            text = if (isWorstCase) "Worst-Case Cash Alert" else "Low Cash Flow Warning",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = ThresholdDanger
@@ -113,14 +115,21 @@ fun ThresholdAlertBanner(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
+                val daysText = when (activeBreach.daysAhead) {
+                    0L -> "today"
+                    1L -> "tomorrow"
+                    else -> "in ${activeBreach.daysAhead} days"
+                }
+
                 Text(
                     text = String.format(
                         Locale.US,
-                        "Projected cash drops below your $%,.0f safety threshold on %s, reaching a low of $%,.0f (%s scenario).",
-                        projection.minimumThreshold,
+                        "Projected cash drops below your $%,.0f safety threshold %s (%s), reaching a low of $%,.0f (%s scenario).",
+                        minimumThreshold,
+                        daysText,
                         dateFormatted,
-                        breachAmt,
-                        if (isWorstCaseOnly) "worst-case maximum costs" else "average costs"
+                        activeBreach.amount,
+                        if (isWorstCase) "worst-case maximum costs" else "average costs"
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     lineHeight = 20.sp,
@@ -145,12 +154,22 @@ fun ThresholdAlertBanner(
                         Text("Inspect Ledger", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
 
-                    OutlinedButton(
-                        onClick = onAdjustThreshold,
-                        modifier = Modifier.weight(1f).testTag("alert_adjust_threshold_button"),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Safety Buffer", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    if (isWorstCase && onMuteWorstCase != null) {
+                        OutlinedButton(
+                            onClick = onMuteWorstCase,
+                            modifier = Modifier.weight(1f).testTag("alert_mute_worst_case_button"),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Mute Worst-Case", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = onAdjustThreshold,
+                            modifier = Modifier.weight(1f).testTag("alert_adjust_threshold_button"),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Safety Buffer", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }

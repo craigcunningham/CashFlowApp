@@ -66,6 +66,7 @@ import com.example.ui.AppTab
 import com.example.ui.CashFlowUiState
 import com.example.ui.CashFlowViewModel
 import com.example.ui.dialogs.AddEditItemDialog
+import com.example.ui.dialogs.ManageCategoriesDialog
 import com.example.ui.dialogs.RecordActualDialog
 import com.example.ui.dialogs.SafetyThresholdDialog
 import com.example.ui.dialogs.StartingCashDialog
@@ -180,7 +181,7 @@ fun CashFlowApp(
                 actions = {
                     val projection = uiState.projection
                     if (projection != null) {
-                        val isBreached = projection.isThresholdBreachedAvg || projection.isThresholdBreachedMax
+                        val isBreached = uiState.settings.notifyBelowThreshold && uiState.activeBreach != null
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = if (isBreached) ThresholdDanger.copy(alpha = 0.15f) else EmeraldPrimary.copy(alpha = 0.15f),
@@ -267,6 +268,7 @@ fun CashFlowApp(
                         onSelectHorizon = { viewModel.selectHorizon(it) },
                         onSelectScenarioFilter = { viewModel.setScenarioFilter(it) },
                         onDismissBanner = { viewModel.dismissBanner() },
+                        onMuteWorstCase = { viewModel.muteWorstCaseAlerts() },
                         onViewInLedger = { viewModel.selectTab(AppTab.TABLE) },
                         onEditStartingCash = { viewModel.showStartingCashDialog() },
                         onAdjustThreshold = { viewModel.showThresholdDialog() },
@@ -292,6 +294,7 @@ fun CashFlowApp(
                         uiState = uiState,
                         onEditStartingCash = { viewModel.showStartingCashDialog() },
                         onEditThreshold = { viewModel.showThresholdDialog() },
+                        onManageCategories = { viewModel.showCategoryManagerDialog() },
                         onSelectThemeMode = { viewModel.setThemeMode(it) },
                         onRestoreBackup = { viewModel.restoreBackupFromJson(it) }
                     )
@@ -316,8 +319,9 @@ fun CashFlowApp(
             currentNotifyAvg = uiState.settings.notifyAverageCase,
             currentNotifyWorst = uiState.settings.notifyWorstCase,
             currentLookaheadDays = uiState.settings.notificationLookaheadDays,
-            onConfirm = { threshold, notifyAvg, notifyWorst, lookaheadDays ->
-                viewModel.updateThreshold(threshold, notifyAvg, notifyWorst, lookaheadDays)
+            currentWorstCaseDays = uiState.settings.worstCaseProjectionDays,
+            onConfirm = { threshold, notifyAvg, notifyWorst, lookaheadDays, worstCaseDays ->
+                viewModel.updateThreshold(threshold, notifyAvg, notifyWorst, lookaheadDays, worstCaseDays)
             },
             onDismiss = { viewModel.hideThresholdDialog() }
         )
@@ -326,7 +330,10 @@ fun CashFlowApp(
     if (uiState.isItemDialogVisible && uiState.editingItem != null) {
         AddEditItemDialog(
             item = uiState.editingItem!!,
+            availableExpenseCategories = uiState.expenseCategories,
+            availableIncomeCategories = uiState.incomeCategories,
             onSave = { viewModel.saveItem(it) },
+            onAddNewCategory = { name, type -> viewModel.addCategory(name, type) },
             onDelete = if (uiState.editingItem!!.id != 0L) {
                 { viewModel.deleteItem(it); viewModel.hideItemDialog() }
             } else null,
@@ -345,6 +352,17 @@ fun CashFlowApp(
                 viewModel.removeActual(event.itemId, event.scheduledDate)
             },
             onDismiss = { viewModel.hideRecordActualDialog() }
+        )
+    }
+
+    if (uiState.isCategoryManagerDialogVisible) {
+        ManageCategoriesDialog(
+            categories = uiState.categories,
+            onAddCategory = { name, type -> viewModel.addCategory(name, type) },
+            onRenameCategory = { oldName, newName, type -> viewModel.renameCategory(oldName, newName, type) },
+            onDeleteCategory = { viewModel.deleteCategory(it) },
+            onResetToDefaults = { viewModel.resetCategoriesToDefault() },
+            onDismiss = { viewModel.hideCategoryManagerDialog() }
         )
     }
 }

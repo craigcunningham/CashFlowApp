@@ -10,11 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
@@ -62,13 +65,16 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.ui.theme.ThemeMode
+import com.example.ui.theme.WorstCaseAmber
 import com.example.util.DataBackupManager
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     uiState: CashFlowUiState,
     onEditStartingCash: () -> Unit,
     onEditThreshold: () -> Unit,
+    onManageCategories: () -> Unit,
     onSelectThemeMode: (String) -> Unit,
     onRestoreBackup: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -372,14 +378,102 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Worst-Case Window Limit:", style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                text = "${settings.worstCaseProjectionDays} days into future",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = WorstCaseAmber
+                            )
+                        }
                     }
                 }
 
                 Text(
-                    text = "The app scans your projected balances up to ${settings.notificationLookaheadDays} days into the future and notifies you if either selected scenario breaches your safety threshold.",
+                    text = "The app scans your balances up to ${settings.notificationLookaheadDays} days ahead for notifications. Worst-case (maximum cost) calculations and graph curves are limited to ${settings.worstCaseProjectionDays} days into the future.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+
+        // Section: Expense & Income Categories
+        Card(
+            modifier = Modifier.fillMaxWidth().testTag("categories_settings_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Category,
+                            contentDescription = null,
+                            tint = EmeraldPrimary
+                        )
+                        Text(
+                            text = "Expense Categories",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onManageCategories,
+                        modifier = Modifier.testTag("manage_categories_button"),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Text("Configure", fontSize = 12.sp)
+                    }
+                }
+
+                Text(
+                    text = "Personalize your expense categories to match your spending patterns. Configure, rename, or add custom tags for recurring and adhoc expenses.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Preview current active expense categories as chips
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    uiState.expenseCategories.forEach { cat ->
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        ) {
+                            Text(
+                                text = cat,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
 

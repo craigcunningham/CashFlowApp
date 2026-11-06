@@ -28,6 +28,7 @@ object CsvExporter {
             writer.append("# Projection End Date: ${projection.endDate.format(DATE_FORMATTER)}\n")
             writer.append(String.format(Locale.US, "# Starting Balance: $%.2f\n", projection.startingBalance))
             writer.append(String.format(Locale.US, "# Safety Threshold: $%.2f\n", projection.minimumThreshold))
+            writer.append(String.format(Locale.US, "# Worst-Case Horizon Limit: %d days (cutoff: %s)\n", projection.worstCaseProjectionDays, projection.worstCaseCutoffDate.format(DATE_FORMATTER)))
             writer.append(String.format(Locale.US, "# Final Projected Balance (Avg): $%.2f\n", projection.finalAvgBalance))
             writer.append(String.format(Locale.US, "# Final Projected Balance (Max/Worst-Case): $%.2f\n", projection.finalMaxBalance))
             writer.append(String.format(Locale.US, "# Lowest Projected Point (Avg): $%.2f on %s\n", projection.lowestAvgBalance, projection.lowestAvgDate?.format(DATE_FORMATTER) ?: "N/A"))
@@ -37,7 +38,7 @@ object CsvExporter {
             writer.append("Date,Type,Description,Category,Period,Is Actual?,Estimated Avg Amount,Estimated Max Amount,Effective Avg Amount,Effective Max Amount,Cumulative Avg Balance,Cumulative Max Balance,Threshold Warning,Notes\n")
 
             for (event in projection.allEvents) {
-                val isBelowThreshold = event.runningAvgBalance < projection.minimumThreshold || event.runningMaxBalance < projection.minimumThreshold
+                val isBelowThreshold = event.runningAvgBalance < projection.minimumThreshold || (event.isWorstCaseActive && event.runningMaxBalance < projection.minimumThreshold)
                 val thresholdWarning = if (isBelowThreshold) "BELOW THRESHOLD" else "OK"
 
                 writer.append(escapeCsv(event.date.format(DATE_FORMATTER))).append(",")
@@ -51,7 +52,7 @@ object CsvExporter {
                 writer.append(String.format(Locale.US, "%.2f", event.effectiveAvgAmount)).append(",")
                 writer.append(String.format(Locale.US, "%.2f", event.effectiveMaxAmount)).append(",")
                 writer.append(String.format(Locale.US, "%.2f", event.runningAvgBalance)).append(",")
-                writer.append(String.format(Locale.US, "%.2f", event.runningMaxBalance)).append(",")
+                writer.append(if (event.isWorstCaseActive) String.format(Locale.US, "%.2f", event.runningMaxBalance) else "N/A").append(",")
                 writer.append(escapeCsv(thresholdWarning)).append(",")
                 writer.append(escapeCsv(event.notes))
                 writer.append("\n")

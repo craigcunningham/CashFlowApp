@@ -61,6 +61,7 @@ fun DashboardScreen(
     onSelectHorizon: (Int) -> Unit,
     onSelectScenarioFilter: (ScenarioFilter) -> Unit,
     onDismissBanner: () -> Unit,
+    onMuteWorstCase: () -> Unit,
     onViewInLedger: () -> Unit,
     onEditStartingCash: () -> Unit,
     onAdjustThreshold: () -> Unit,
@@ -113,9 +114,11 @@ fun DashboardScreen(
             if (projection != null) {
                 item {
                     ThresholdAlertBanner(
-                        projection = projection,
+                        activeBreach = uiState.activeBreach,
+                        minimumThreshold = uiState.settings.minimumThresholdAmount,
                         isDismissed = uiState.bannerDismissed,
                         onDismiss = onDismissBanner,
+                        onMuteWorstCase = onMuteWorstCase,
                         onViewInLedger = onViewInLedger,
                         onAdjustThreshold = onAdjustThreshold
                     )
@@ -273,7 +276,7 @@ fun DashboardEventRow(
     onRecordActual: () -> Unit
 ) {
     val isIncome = event.type == TransactionType.INCOME
-    val isBelowThreshold = event.runningAvgBalance < minimumThreshold || event.runningMaxBalance < minimumThreshold
+    val isBelowThreshold = event.runningAvgBalance < minimumThreshold || (event.isWorstCaseActive && event.runningMaxBalance < minimumThreshold)
 
     Card(
         modifier = Modifier
@@ -365,7 +368,7 @@ fun DashboardEventRow(
                     color = if (isIncome) IncomeGreen else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Bal: ${String.format(Locale.US, "$%,.0f", event.runningAvgBalance)}",
+                    text = "Bal: ${String.format(Locale.US, "$%,.2f", event.runningAvgBalance)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isBelowThreshold) ThresholdDanger else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = if (isBelowThreshold) FontWeight.Bold else FontWeight.Normal

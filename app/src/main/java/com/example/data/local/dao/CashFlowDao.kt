@@ -8,6 +8,7 @@ import androidx.room.Query
 import androidx.room.Update
 import com.example.data.local.entity.ActualAdjustmentEntity
 import com.example.data.local.entity.CashFlowItemEntity
+import com.example.data.local.entity.CustomCategoryEntity
 import com.example.data.local.entity.UserSettingsEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -80,4 +81,35 @@ interface CashFlowDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateSettings(settings: UserSettingsEntity)
+
+    // --- Custom Categories ---
+    @Query("SELECT * FROM custom_categories ORDER BY isDefault DESC, name ASC")
+    fun getAllCategories(): Flow<List<CustomCategoryEntity>>
+
+    @Query("SELECT * FROM custom_categories WHERE type = :type ORDER BY isDefault DESC, name ASC")
+    fun getCategoriesByType(type: String): Flow<List<CustomCategoryEntity>>
+
+    @Query("SELECT * FROM custom_categories")
+    suspend fun getAllCategoriesDirect(): List<CustomCategoryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCategory(category: CustomCategoryEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCategories(categories: List<CustomCategoryEntity>)
+
+    @Update
+    suspend fun updateCategory(category: CustomCategoryEntity)
+
+    @Query("UPDATE cash_flow_items SET category = :newName WHERE category = :oldName")
+    suspend fun updateItemCategoryNames(oldName: String, newName: String)
+
+    @Delete
+    suspend fun deleteCategory(category: CustomCategoryEntity)
+
+    @Query("DELETE FROM custom_categories WHERE id = :id")
+    suspend fun deleteCategoryById(id: Long)
+
+    @Query("DELETE FROM custom_categories")
+    suspend fun clearAllCategories()
 }

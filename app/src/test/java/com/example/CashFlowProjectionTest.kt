@@ -344,4 +344,190 @@ class CashFlowProjectionTest {
         )
         org.junit.Assert.assertNull(breachAvgDisabled)
     }
+
+    @Test
+    fun testStarterItemsProjection() {
+        val today = LocalDate.of(2026, 11, 1)
+        val settings = UserSettingsEntity(
+            id = 1,
+            startingCashAmount = 4500.0,
+            startingDateEpochDay = today.toEpochDay(),
+            minimumThresholdAmount = 1000.0,
+            currencySymbol = "$",
+            notifyBelowThreshold = true,
+            projectionHorizonMonths = 6
+        )
+        val starterItems = listOf(
+            CashFlowItemEntity(
+                title = "Salary Paycheck",
+                type = TransactionType.INCOME.name,
+                isPeriodic = true,
+                period = PeriodType.BI_WEEKLY.name,
+                averageAmount = 2400.0,
+                maximumAmount = 2400.0,
+                startDateEpochDay = today.plusDays(2).toEpochDay(),
+                category = "Salary"
+            ),
+            CashFlowItemEntity(
+                title = "Apartment Rent",
+                type = TransactionType.EXPENSE.name,
+                isPeriodic = true,
+                period = PeriodType.MONTHLY.name,
+                averageAmount = 1450.0,
+                maximumAmount = 1450.0,
+                startDateEpochDay = today.toEpochDay(),
+                category = "Housing"
+            ),
+            CashFlowItemEntity(
+                title = "Electric & Utilities",
+                type = TransactionType.EXPENSE.name,
+                isPeriodic = true,
+                period = PeriodType.MONTHLY.name,
+                averageAmount = 120.0,
+                maximumAmount = 190.0,
+                startDateEpochDay = today.plusDays(10).toEpochDay(),
+                category = "Utilities"
+            ),
+            CashFlowItemEntity(
+                title = "Groceries & Household",
+                type = TransactionType.EXPENSE.name,
+                isPeriodic = true,
+                period = PeriodType.WEEKLY.name,
+                averageAmount = 150.0,
+                maximumAmount = 220.0,
+                startDateEpochDay = today.plusDays(4).toEpochDay(),
+                category = "Food"
+            ),
+            CashFlowItemEntity(
+                title = "Car Insurance",
+                type = TransactionType.EXPENSE.name,
+                isPeriodic = true,
+                period = PeriodType.BI_ANNUAL.name,
+                averageAmount = 600.0,
+                maximumAmount = 650.0,
+                startDateEpochDay = today.plusMonths(2).toEpochDay(),
+                category = "Transportation"
+            ),
+            CashFlowItemEntity(
+                title = "High-Yield Savings Interest",
+                type = TransactionType.INCOME.name,
+                isPeriodic = true,
+                period = PeriodType.MONTHLY.name,
+                averageAmount = 45.0,
+                maximumAmount = 45.0,
+                startDateEpochDay = today.plusDays(15).toEpochDay(),
+                category = "Investment"
+            )
+        )
+        val result = CashFlowProjectionEngine.calculateProjection(
+            settings = settings,
+            items = starterItems,
+            actuals = emptyList(),
+            horizonMonths = 6
+        )
+        assertFalse(result.isThresholdBreachedAvg)
+        assertFalse(result.isThresholdBreachedMax)
+        val breachInfo = result.getBreachWithinLookahead(30, checkAvg = true, checkWorstCase = true, fromDate = today)
+        org.junit.Assert.assertNull(breachInfo)
+    }
+
+    @Test
+    fun testPastBreachDoesNotTriggerUpcomingAlert() {
+        val today = LocalDate.of(2026, 11, 1)
+        val startDate = today.minusDays(20)
+        val settings = UserSettingsEntity(
+            id = 1,
+            startingCashAmount = 800.0, // Below 1000 threshold in the past!
+            startingDateEpochDay = startDate.toEpochDay(),
+            minimumThresholdAmount = 1000.0,
+            projectionHorizonMonths = 2
+        )
+        // Income occurred 10 days ago bringing balance to 4000
+        val items = listOf(
+            CashFlowItemEntity(
+                title = "Past Salary",
+                type = TransactionType.INCOME.name,
+                isPeriodic = false,
+                period = PeriodType.NONE.name,
+                averageAmount = 3200.0,
+                maximumAmount = 3200.0,
+                startDateEpochDay = startDate.plusDays(10).toEpochDay(),
+                category = "Salary"
+            )
+        )
+        val result = CashFlowProjectionEngine.calculateProjection(
+            settings = settings,
+            items = items,
+            actuals = emptyList(),
+            horizonMonths = 2
+        )
+
+        // The breach within upcoming 30 days from today must be null because today's balance is 4000
+        val upcomingBreach = result.getBreachWithinLookahead(
+            lookaheadDays = 30,
+            checkAvg = true,
+            checkWorstCase = true,
+            fromDate = today
+        )
+        org.junit.Assert.assertNull(upcomingBreach)
+    }
+
+    @Test
+    fun testWorstCaseCalculationBoundedByConfigurableDays() {
+        val today = LocalDate.now()
+        val settings = UserSettingsEntity(
+            startingCashAmount = 3000.0,
+            startingDateEpochDay = today.toEpochDay(),
+            minimumThresholdAmount = 1000.0,
+            projectionHorizonMonths = 6,
+            worstCaseProjectionDays = 60
+        )
+
+        // Expense every 10 days: avg $100, max $800.
+        // Over 6 months (180 days), there are 18 occurrences.
+        // In worst-case without limit: 3000 - (18 * 800) = -11,400 (deep breach).
+        // With 60-day limit: only occurrences within next 60 days (6 occurrences) count towards worst case.
+        val items = listOf(
+            CashFlowItemEntity(
+                id = 1,
+                title = "Variable Expense",
+                type = TransactionType.EXPENSE.name,
+                isPeriodic = true,
+                period = PeriodType.WEEKLY.name,
+                averageAmount = 100.0,
+                maximumAmount = 500.0,
+                startDateEpochDay = today.plusDays(7).toEpochDay(),
+                category = "Miscellaneous"
+            )
+        )
+
+        val result = CashFlowProjectionEngine.calculateProjection(
+            settings = settings,
+            items = items,
+            actuals = emptyList(),
+            horizonMonths = 6
+        )
+
+        assertEquals(60, result.worstCaseProjectionDays)
+        val cutoffDate = today.plusDays(60)
+        assertEquals(cutoffDate, result.worstCaseCutoffDate)
+
+        // Verify active points vs inactive points
+        val activePoints = result.dailyPoints.filter { it.isWorstCaseActive }
+        val inactivePoints = result.dailyPoints.filter { !it.isWorstCaseActive }
+
+        assertTrue("Should have active points within 60 days", activePoints.isNotEmpty())
+        assertTrue("Should have inactive points after 60 days in a 6-month horizon", inactivePoints.isNotEmpty())
+
+        activePoints.forEach { point ->
+            assertFalse(point.date.isAfter(cutoffDate))
+            assertTrue(point.isWorstCaseActive)
+        }
+
+        inactivePoints.forEach { point ->
+            assertTrue(point.date.isAfter(cutoffDate))
+            assertFalse(point.isWorstCaseActive)
+            assertFalse("Inactive point must not flag worst-case threshold breach", point.isBelowThresholdMax)
+        }
+    }
 }

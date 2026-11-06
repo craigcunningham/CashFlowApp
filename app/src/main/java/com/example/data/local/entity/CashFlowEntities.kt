@@ -57,6 +57,19 @@ data class UserSettingsEntity(
     val notifyAverageCase: Boolean = true,
     val notifyWorstCase: Boolean = true,
     val notificationLookaheadDays: Int = 30,
+    val worstCaseProjectionDays: Int = 60,
     val projectionHorizonMonths: Int = 6,
     val themeMode: String = "SYSTEM" // "SYSTEM", "LIGHT", "DARK"
+)
+
+@Entity(
+    tableName = "custom_categories",
+    indices = [Index(value = ["name", "type"], unique = true)]
+)
+data class CustomCategoryEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0L,
+    val name: String,
+    val type: String = "EXPENSE", // "EXPENSE" or "INCOME"
+    val isDefault: Boolean = false
 )

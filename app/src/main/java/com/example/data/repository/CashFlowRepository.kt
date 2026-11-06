@@ -3,6 +3,7 @@ package com.example.data.repository
 import com.example.data.local.dao.CashFlowDao
 import com.example.data.local.entity.ActualAdjustmentEntity
 import com.example.data.local.entity.CashFlowItemEntity
+import com.example.data.local.entity.CustomCategoryEntity
 import com.example.data.local.entity.UserSettingsEntity
 import com.example.domain.model.PeriodType
 import com.example.domain.model.TransactionType
@@ -15,6 +16,7 @@ class CashFlowRepository(private val dao: CashFlowDao) {
     val allItems: Flow<List<CashFlowItemEntity>> = dao.getAllItems()
     val allActuals: Flow<List<ActualAdjustmentEntity>> = dao.getAllActuals()
     val userSettings: Flow<UserSettingsEntity?> = dao.getUserSettings()
+    val allCategories: Flow<List<CustomCategoryEntity>> = dao.getAllCategories()
 
     suspend fun ensureInitialized() {
         val existingSettings = dao.getUserSettingsDirect()
@@ -104,6 +106,20 @@ class CashFlowRepository(private val dao: CashFlowDao) {
             )
             dao.insertItems(starterItems)
         }
+
+        val existingCategories = dao.getAllCategoriesDirect()
+        if (existingCategories.isEmpty()) {
+            val defaultExpenses = listOf(
+                "Housing", "Utilities", "Food", "Transportation",
+                "Health", "Insurance", "Entertainment", "Debt", "Personal", "Other"
+            ).map { CustomCategoryEntity(name = it, type = "EXPENSE", isDefault = true) }
+
+            val defaultIncomes = listOf(
+                "Salary", "Freelance", "Investment", "Bonus", "Rental", "Other"
+            ).map { CustomCategoryEntity(name = it, type = "INCOME", isDefault = true) }
+
+            dao.insertCategories(defaultExpenses + defaultIncomes)
+        }
     }
 
     suspend fun saveItem(item: CashFlowItemEntity): Long {
@@ -176,7 +192,8 @@ class CashFlowRepository(private val dao: CashFlowDao) {
         threshold: Double,
         notifyAverage: Boolean,
         notifyWorstCase: Boolean,
-        lookaheadDays: Int
+        lookaheadDays: Int,
+        worstCaseProjectionDays: Int = 60
     ) {
         val current = dao.getUserSettingsDirect() ?: UserSettingsEntity()
         dao.insertOrUpdateSettings(
@@ -185,8 +202,16 @@ class CashFlowRepository(private val dao: CashFlowDao) {
                 notifyBelowThreshold = notifyAverage || notifyWorstCase,
                 notifyAverageCase = notifyAverage,
                 notifyWorstCase = notifyWorstCase,
-                notificationLookaheadDays = lookaheadDays
+                notificationLookaheadDays = lookaheadDays,
+                worstCaseProjectionDays = worstCaseProjectionDays
             )
+        )
+    }
+
+    suspend fun updateWorstCaseProjectionDays(days: Int) {
+        val current = dao.getUserSettingsDirect() ?: UserSettingsEntity()
+        dao.insertOrUpdateSettings(
+            current.copy(worstCaseProjectionDays = days)
         )
     }
 
@@ -224,5 +249,41 @@ class CashFlowRepository(private val dao: CashFlowDao) {
         for (actual in snapshot.actuals) {
             dao.insertOrUpdateActual(actual)
         }
+    }
+
+    suspend fun addCategory(name: String, type: String = "EXPENSE"): Boolean {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return false
+        val entity = CustomCategoryEntity(name = trimmed, type = type.uppercase(), isDefault = false)
+        return dao.insertCategory(entity) > 0
+    }
+
+    suspend fun renameCategory(oldName: String, newName: String, type: String = "EXPENSE") {
+        val trimmedNew = newName.trim()
+        if (trimmedNew.isBlank() || trimmedNew.equals(oldName, ignoreCase = true)) return
+        val existing = dao.getAllCategoriesDirect().firstOrNull { it.name.equals(oldName, ignoreCase = true) && it.type == type.uppercase() }
+        if (existing != null) {
+            dao.updateCategory(existing.copy(name = trimmedNew))
+            dao.updateItemCategoryNames(oldName, trimmedNew)
+        }
+    }
+
+    suspend fun deleteCategory(category: CustomCategoryEntity) {
+        dao.deleteCategory(category)
+        dao.updateItemCategoryNames(category.name, "Other")
+    }
+
+    suspend fun resetCategoriesToDefault() {
+        dao.clearAllCategories()
+        val defaultExpenses = listOf(
+            "Housing", "Utilities", "Food", "Transportation",
+            "Health", "Insurance", "Entertainment", "Debt", "Personal", "Other"
+        ).map { CustomCategoryEntity(name = it, type = "EXPENSE", isDefault = true) }
+
+        val defaultIncomes = listOf(
+            "Salary", "Freelance", "Investment", "Bonus", "Rental", "Other"
+        ).map { CustomCategoryEntity(name = it, type = "INCOME", isDefault = true) }
+
+        dao.insertCategories(defaultExpenses + defaultIncomes)
     }
 }

@@ -10,14 +10,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -25,6 +33,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +61,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.CashFlowItemEntity
+import com.example.data.local.entity.CustomCategoryEntity
 import com.example.domain.engine.CashFlowEvent
 import com.example.domain.model.PeriodType
 import com.example.domain.model.TransactionType
@@ -171,7 +181,8 @@ fun SafetyThresholdDialog(
     currentNotifyAvg: Boolean,
     currentNotifyWorst: Boolean,
     currentLookaheadDays: Int,
-    onConfirm: (threshold: Double, notifyAvg: Boolean, notifyWorst: Boolean, lookaheadDays: Int) -> Unit,
+    currentWorstCaseDays: Int = 60,
+    onConfirm: (threshold: Double, notifyAvg: Boolean, notifyWorst: Boolean, lookaheadDays: Int, worstCaseDays: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var thresholdText by remember { mutableStateOf(String.format(Locale.US, "%.2f", currentThreshold)) }
@@ -179,6 +190,8 @@ fun SafetyThresholdDialog(
     var notifyWorst by remember { mutableStateOf(currentNotifyWorst) }
     var lookaheadDays by remember { mutableIntStateOf(currentLookaheadDays) }
     var lookaheadText by remember { mutableStateOf(currentLookaheadDays.toString()) }
+    var worstCaseDays by remember { mutableIntStateOf(currentWorstCaseDays) }
+    var worstCaseDaysText by remember { mutableStateOf(currentWorstCaseDays.toString()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -300,19 +313,71 @@ fun SafetyThresholdDialog(
                         }
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                // Worst-Case Projection Horizon Configuration
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Worst-Case Projection Window",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "Only calculate worst-case (maximum cost) projections up to this many days into the future. Beyond this limit, worst-case calculations and graph curve are not computed.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = worstCaseDaysText,
+                        onValueChange = { input ->
+                            worstCaseDaysText = input
+                            val parsed = input.toIntOrNull()
+                            if (parsed != null && parsed in 1..365) {
+                                worstCaseDays = parsed
+                            }
+                        },
+                        label = { Text("Worst-Case Window (Days)") },
+                        suffix = { Text("days") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("worst_case_days_input")
+                    )
+
+                    // Quick Chips for Worst-Case Window
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(30, 60, 90, 120, 180).forEach { days ->
+                            FilterChip(
+                                selected = worstCaseDays == days,
+                                onClick = {
+                                    worstCaseDays = days
+                                    worstCaseDaysText = days.toString()
+                                },
+                                label = { Text("${days}d", fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     val parsed = thresholdText.toDoubleOrNull()
-                    val parsedDays = lookaheadText.toIntOrNull() ?: lookaheadDays
+                    val parsedLookahead = lookaheadText.toIntOrNull() ?: lookaheadDays
+                    val parsedWorstCase = worstCaseDaysText.toIntOrNull() ?: worstCaseDays
                     if (parsed == null || parsed < 0) {
                         errorMessage = "Please enter a valid positive threshold"
-                    } else if (parsedDays < 1 || parsedDays > 365) {
+                    } else if (parsedLookahead < 1 || parsedLookahead > 365) {
                         errorMessage = "Lookahead must be between 1 and 365 days"
+                    } else if (parsedWorstCase < 1 || parsedWorstCase > 365) {
+                        errorMessage = "Worst-case window must be between 1 and 365 days"
                     } else {
-                        onConfirm(parsed, notifyAvg, notifyWorst, parsedDays)
+                        onConfirm(parsed, notifyAvg, notifyWorst, parsedLookahead, parsedWorstCase)
                     }
                 },
                 modifier = Modifier.testTag("save_threshold_button")
@@ -326,11 +391,14 @@ fun SafetyThresholdDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddEditItemDialog(
     item: CashFlowItemEntity,
+    availableExpenseCategories: List<String> = emptyList(),
+    availableIncomeCategories: List<String> = emptyList(),
     onSave: (CashFlowItemEntity) -> Unit,
+    onAddNewCategory: ((String, String) -> Unit)? = null,
     onDelete: ((CashFlowItemEntity) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
@@ -342,16 +410,27 @@ fun AddEditItemDialog(
     var avgAmountText by remember { mutableStateOf(if (item.averageAmount > 0) String.format(Locale.US, "%.2f", item.averageAmount) else "") }
     var maxAmountText by remember { mutableStateOf(if (item.maximumAmount > 0) String.format(Locale.US, "%.2f", item.maximumAmount) else "") }
     var selectedDate by remember { mutableStateOf(LocalDate.ofEpochDay(item.startDateEpochDay)) }
-    var category by remember { mutableStateOf(item.category.ifBlank { if (type == TransactionType.INCOME) "Salary" else "Housing" }) }
+
+    val activeExpenseCategories = remember(availableExpenseCategories) {
+        if (availableExpenseCategories.isNotEmpty()) availableExpenseCategories
+        else listOf("Housing", "Utilities", "Food", "Transportation", "Health", "Insurance", "Entertainment", "Debt", "Personal", "Other")
+    }
+
+    val activeIncomeCategories = remember(availableIncomeCategories) {
+        if (availableIncomeCategories.isNotEmpty()) availableIncomeCategories
+        else listOf("Salary", "Freelance", "Investment", "Bonus", "Rental", "Other")
+    }
+
+    val currentCategories = if (type == TransactionType.INCOME) activeIncomeCategories else activeExpenseCategories
+
+    var category by remember {
+        mutableStateOf(item.category.ifBlank { currentCategories.firstOrNull() ?: "Other" })
+    }
+    var isAddingNewCategory by remember { mutableStateOf(false) }
+    var newCategoryText by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf(item.notes) }
     var showDatePicker by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    val categories = if (type == TransactionType.INCOME) {
-        listOf("Salary", "Freelance", "Investment", "Bonus", "Rental", "Other")
-    } else {
-        listOf("Housing", "Utilities", "Food", "Transportation", "Health", "Insurance", "Entertainment", "Debt", "Other")
-    }
 
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(
@@ -417,7 +496,9 @@ fun AddEditItemDialog(
                         selected = type == TransactionType.EXPENSE,
                         onClick = {
                             type = TransactionType.EXPENSE
-                            if (!categories.contains(category)) category = "Housing"
+                            if (!activeExpenseCategories.contains(category)) {
+                                category = activeExpenseCategories.firstOrNull() ?: "Housing"
+                            }
                         },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                     ) {
@@ -427,7 +508,9 @@ fun AddEditItemDialog(
                         selected = type == TransactionType.INCOME,
                         onClick = {
                             type = TransactionType.INCOME
-                            if (!categories.contains(category)) category = "Salary"
+                            if (!activeIncomeCategories.contains(category)) {
+                                category = activeIncomeCategories.firstOrNull() ?: "Salary"
+                            }
                         },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                     ) {
@@ -560,31 +643,73 @@ fun AddEditItemDialog(
                     modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true }
                 )
 
-                // Category Chips
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Category", style = MaterialTheme.typography.labelMedium)
+                // Category Chips with FlowRow and inline New Category chip
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        categories.take(3).forEach { cat ->
-                            FilterChip(
-                                selected = category == cat,
-                                onClick = { category = cat },
-                                label = { Text(cat, fontSize = 11.sp) }
-                            )
+                        Text("Category", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        if (category.isNotBlank()) {
+                            Text("Selected: $category", style = MaterialTheme.typography.labelSmall, color = EmeraldPrimary)
                         }
                     }
-                    Row(
+
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        categories.drop(3).take(3).forEach { cat ->
+                        currentCategories.forEach { cat ->
                             FilterChip(
                                 selected = category == cat,
                                 onClick = { category = cat },
-                                label = { Text(cat, fontSize = 11.sp) }
+                                label = { Text(cat, fontSize = 11.sp) },
+                                modifier = Modifier.testTag("item_category_$cat")
                             )
+                        }
+
+                        // Inline Quick Add Category Chip
+                        FilterChip(
+                            selected = isAddingNewCategory,
+                            onClick = { isAddingNewCategory = !isAddingNewCategory },
+                            leadingIcon = {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                            },
+                            label = { Text("New...", fontSize = 11.sp) },
+                            modifier = Modifier.testTag("add_new_category_chip")
+                        )
+                    }
+
+                    if (isAddingNewCategory) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = newCategoryText,
+                                onValueChange = { newCategoryText = it },
+                                label = { Text("New Category Name") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f).testTag("new_category_name_input")
+                            )
+                            Button(
+                                onClick = {
+                                    val trimmed = newCategoryText.trim()
+                                    if (trimmed.isNotBlank()) {
+                                        onAddNewCategory?.invoke(trimmed, type.name)
+                                        category = trimmed
+                                        newCategoryText = ""
+                                        isAddingNewCategory = false
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.testTag("confirm_new_category_button")
+                            ) {
+                                Text("Add")
+                            }
                         }
                     }
                 }
@@ -817,6 +942,272 @@ fun RecordActualDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ManageCategoriesDialog(
+    categories: List<CustomCategoryEntity>,
+    onAddCategory: (String, String) -> Unit,
+    onRenameCategory: (String, String, String) -> Unit,
+    onDeleteCategory: (CustomCategoryEntity) -> Unit,
+    onResetToDefaults: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedType by remember { mutableStateOf(TransactionType.EXPENSE) }
+    var newCategoryName by remember { mutableStateOf("") }
+    var editingCategory by remember { mutableStateOf<CustomCategoryEntity?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val filteredCategories = categories.filter {
+        it.type.equals(selectedType.name, ignoreCase = true)
+    }.sortedWith(compareBy({ !it.isDefault }, { it.name }))
+
+    // Sub-dialog to rename a category
+    if (editingCategory != null) {
+        AlertDialog(
+            onDismissRequest = { editingCategory = null },
+            title = { Text("Rename Category", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Rename '${editingCategory!!.name}'. Any items using this category will automatically be updated.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = renameText,
+                        onValueChange = { renameText = it },
+                        label = { Text("New Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("rename_category_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = renameText.trim()
+                        if (trimmed.isNotBlank()) {
+                            onRenameCategory(editingCategory!!.name, trimmed, selectedType.name)
+                            editingCategory = null
+                        }
+                    },
+                    modifier = Modifier.testTag("confirm_rename_category_button")
+                ) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingCategory = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Category,
+                    contentDescription = null,
+                    tint = EmeraldPrimary
+                )
+                Text("Configure Categories", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    "Add, rename, or delete transaction categories. Expense categories help organize and project your spending accurately.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Type Toggle: Expense vs Income
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = selectedType == TransactionType.EXPENSE,
+                        onClick = {
+                            selectedType = TransactionType.EXPENSE
+                            errorMessage = null
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                    ) {
+                        Text(
+                            "Expenses (${categories.count { it.type.equals("EXPENSE", ignoreCase = true) }})",
+                            color = if (selectedType == TransactionType.EXPENSE) ExpenseRed else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    SegmentedButton(
+                        selected = selectedType == TransactionType.INCOME,
+                        onClick = {
+                            selectedType = TransactionType.INCOME
+                            errorMessage = null
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                    ) {
+                        Text(
+                            "Income (${categories.count { it.type.equals("INCOME", ignoreCase = true) }})",
+                            color = if (selectedType == TransactionType.INCOME) IncomeGreen else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                // Add Category Input
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newCategoryName,
+                        onValueChange = {
+                            newCategoryName = it
+                            errorMessage = null
+                        },
+                        label = { Text("New ${selectedType.name.lowercase().replaceFirstChar { it.uppercase() }} Category") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f).testTag("add_category_text_input")
+                    )
+
+                    Button(
+                        onClick = {
+                            val trimmed = newCategoryName.trim()
+                            if (trimmed.isBlank()) {
+                                errorMessage = "Please enter a category name"
+                            } else if (filteredCategories.any { it.name.equals(trimmed, ignoreCase = true) }) {
+                                errorMessage = "Category '$trimmed' already exists"
+                            } else {
+                                onAddCategory(trimmed, selectedType.name)
+                                newCategoryName = ""
+                                errorMessage = null
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.testTag("submit_add_category_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add")
+                    }
+                }
+
+                errorMessage?.let {
+                    Text(text = it, style = MaterialTheme.typography.bodySmall, color = ThresholdDanger)
+                }
+
+                Text(
+                    text = "${selectedType.name.lowercase().replaceFirstChar { it.uppercase() }} Categories (${filteredCategories.size})",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                // List of Categories
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    filteredCategories.forEach { cat ->
+                        androidx.compose.material3.Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth().testTag("manage_category_row_${cat.name}")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = cat.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (cat.isDefault) {
+                                        androidx.compose.material3.Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                text = "Default",
+                                                fontSize = 9.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    IconButton(
+                                        onClick = {
+                                            editingCategory = cat
+                                            renameText = cat.name
+                                        },
+                                        modifier = Modifier.size(32.dp).testTag("edit_category_${cat.name}")
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Edit,
+                                            contentDescription = "Rename ${cat.name}",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+
+                                    // Allow deletion of non-Other categories
+                                    if (!cat.name.equals("Other", ignoreCase = true)) {
+                                        IconButton(
+                                            onClick = { onDeleteCategory(cat) },
+                                            modifier = Modifier.size(32.dp).testTag("delete_category_${cat.name}")
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Delete ${cat.name}",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = ThresholdDanger
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Reset to defaults
+                TextButton(
+                    onClick = onResetToDefaults,
+                    modifier = Modifier.fillMaxWidth().testTag("reset_categories_defaults_button")
+                ) {
+                    Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Reset All Categories to Defaults", fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("dismiss_manage_categories_button")
+            ) {
+                Text("Done")
+            }
         }
     )
 }

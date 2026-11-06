@@ -135,7 +135,7 @@ fun SummaryKpiCards(
                 primaryLabel = "Average",
                 primaryColor = EmeraldPrimary,
                 secondaryValue = String.format(Locale.US, "$%,.0f", projection.finalMaxBalance),
-                secondaryLabel = "Worst-Case",
+                secondaryLabel = "Worst-Case (${projection.worstCaseProjectionDays}d)",
                 secondaryColor = WorstCaseAmber,
                 icon = Icons.Default.ShowChart,
                 modifier = Modifier.weight(1f)
@@ -150,7 +150,7 @@ fun SummaryKpiCards(
                 primaryLabel = "on $lowestDate",
                 primaryColor = if (isBreached) ThresholdDanger else MaterialTheme.colorScheme.onSurface,
                 secondaryValue = String.format(Locale.US, "$%,.0f", projection.lowestMaxBalance),
-                secondaryLabel = "Worst-case low",
+                secondaryLabel = "Worst-case (${projection.worstCaseProjectionDays}d)",
                 secondaryColor = if (projection.lowestMaxBalance < projection.minimumThreshold) ThresholdDanger else WorstCaseAmber,
                 icon = if (isBreached) Icons.Default.Warning else Icons.Default.ArrowDownward,
                 modifier = Modifier.weight(1f)
